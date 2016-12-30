@@ -14,7 +14,7 @@ class Client
 	}
 	
 	public function connect() {
-		$fp = $this->client->connect("127.0.0.1", 9509 , 1);
+		$fp = $this->client->connect("127.0.0.1", 9500 , 1);
 		if( !$fp ) {
 			echo "Error: {$fp->errMsg}[{$fp->errCode}]\n";
 			return;
@@ -22,17 +22,28 @@ class Client
 	}
 
 	public function onReceive( $cli, $data ) {
-	    echo "Get Message From Server: {$data}\n";
+	    $data = json_decode($data, true);
+	    echo "\n Get Message From Server:" . $data['msg'] . "\n";
 	  }
 
 	public function onConnect( $cli) {
-	  	fwrite(STDOUT, "Enter Button(up|down)-Floor(1~20):");
-		swoole_event_add(STDIN, function($fp){
-		    global $cli;
-		    fwrite(STDOUT, "Enter Button(up|down)-Floor(1~20):");
-			list($msg['button'], $msg['floor']) = explode("-", trim(fgets(STDIN)));
+		while (1) {
+		  	fwrite(STDOUT, "Enter Now(1~9)-Status(up|down)-Want(1~9):");
+		  	list($msg['now'], $msg['status'], $msg['want']) = explode("-", trim(fgets(STDIN)));
+			if (empty($msg['status'])) {
+				$msg['status'] = $msg['now'] < $msg['want'] ? "up" : "down";
+			}
 	    	$cli->send( json_encode($msg) );
-		});
+		}
+		// swoole_event_add(STDIN, function($fp){
+		//     global $cli;
+		//     fwrite(STDOUT, "Enter Now(1~9)-Status(up|down)-Want(1~9):");
+		// 	list($msg['now'], $msg['status'], $msg['want']) = explode("-", trim(fgets(STDIN)));
+		// 	if (empty($msg['status'])) {
+		// 		$msg['status'] = $msg['now'] < $msg['want'] ? "up" : "down";
+		// 	}
+	 //    	$cli->send( json_encode($msg) );
+		// });
 	}
 
 	public function onClose( $cli) {
