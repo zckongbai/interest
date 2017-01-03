@@ -18,10 +18,12 @@ class Floor
 
 	protected $elevator_config;
 
+	protected $tick_id;
+
 	function __construct(array $config) {
 		$this->elevator_config = require_once("./elevator_config.php");
 		$this->port = isset($config['port']) ? $config['port'] : 9509;
-		$this->worker_num = isset($config['worker_num']) ? $config['worker_num'] : 1;
+		$this->worker_num = isset($config['worker_num']) ? $config['worker_num'] : 8;
 
 		// 任务队列
 		$this->elevator_table = new swoole_table(1024);
@@ -69,6 +71,8 @@ class Floor
  		// }
  		// $tick_id = swoole_timer_tick(1000, array($this, "go"), $fd);
  		// $this->tick_id = $tick_id;
+ 		$msg = "this is {$request->fd} open";
+ 		return $serv->push($request->fd, $msg);
  	}
 
     public function onClose($serv, $fd) {
@@ -85,11 +89,13 @@ class Floor
  		}
  		echo "fd={$fd}, elevator_num={$data['elevator_num']}\n";
  		$elevator_num = $data['elevator_num'];
- 		$tick_id = swoole_timer_tick( 1000, function() use ($fd, $elevator_num) {
- 			$this->go($fd, $elevator_num);
- 		} );
- 		// $tick_id = swoole_timer_tick( 1000, array($this, "go"), array($fd, $elevator_num) );
- 		$this->tick_id = $tick_id;
+ 		if (!$this->tick_id){
+	 		$tick_id = swoole_timer_tick( 1000, function() use ($fd, $elevator_num) {
+	 			$this->go($fd, $elevator_num);
+	 		} );
+	 		// $tick_id = swoole_timer_tick( 1000, array($this, "go"), array($fd, $elevator_num) );
+	 		$this->tick_id = $tick_id;
+	 	}
 		$msg = "addFloor ok";
 		return $serv->push($fd, $msg);
  	}
@@ -144,8 +150,24 @@ class Floor
  		$this->delFloor($elevator_num, $floor_now, $floor_want, $status);
  	}
 
- 	public function readFloor($elevator_num, $floor_num) {
-
+ 	public function readFloor($elevator_num,$floor_now, $floor_want, $status="") {
+ 		$elevator = $this->elevator_table->get($elevator_num);
+ 		if (!$elevator) {
+ 			return false;
+ 		}
+ 		$go = json_decode($elevator['go'], true);
+ 		$list = array();
+ 		foreach ($go as $key => $value) {
+ 			if ($status == $value['status']){
+	 			if ($status == "up" && $value['floor_now'] > $floor_now && $value['floor_now'] < $floor_want) {
+	 				$list[] = $value;
+	 			}
+	 			if ($status == "down" && $value['floor_now'] < $floor_now && $value['floor_now'] > $floor_want) {
+	 				$list[] = $value;
+	 			}
+ 			}
+ 		}
+ 		return $list;
  	}
 
  	public function delFloor($elevator_num, $floor_now, $floor_want="", $status="") {
@@ -185,6 +207,7 @@ class Floor
  			// 清除任务, 更改状态
  			if ($this->tick_id){
  				swoole_timer_clear($this->tick_id);
+ 				$this->tick_id = null;
  			}
  			$this->statusChange($elevator_num, "free", $elevator["now"]);
  			return false;
@@ -195,6 +218,7 @@ class Floor
  			// 清除任务, 更改状态
  			if ($this->tick_id){
  				swoole_timer_clear($this->tick_id);
+ 				$this->tick_id = null;
  			}
  			$this->statusChange($elevator_num, "free", $elevator["now"]);
  			return false;
@@ -213,47 +237,45 @@ class Floor
  				// 同方向任务数量
  				$some_num ++;
  				// 分上下两种情况
- 				if ($elevator['status'] == "up" && $value['floor_now'] >= $elevator['now'])  {
- 					// 先分配一个 
- 					if (empty($want)) {
- 						$want = $value['floor_now'];
- 						$this_time = $value;
- 					}
- 					// 找到最近的楼层
- 					// 外面的
-					if (empty($value['floor_want'])) {
-						if ($value['floor_now'] < $want) {
-							$want = $value['floor_now'];
- 							$this_time = $value;
-						}
-					}
-					// 里面的
-					else {
-						// 当前的任务
-						if ($this_time == $value) {
-							if ($want > $elevator['now']){
-								$want = $value['floor_now'];
-								$this_time = $value;
-								$this_del = false;
-							} else {
-								$want = $value['floor_want'];
-								$this_time = $value;
-							}
-						} else {
-							// 其他的任务
+				if ($elevator['status'] == "up" && ($value['floor_now'] >= $elevator['now'] || ($value['floor_want'] && $value['floor_want'] >= $elevator['now'])) ){
+	 					// 先分配一个 
+	 					if (empty($want)) {
+	 						$want = $value['floor_now'];
+	 						$this_time = $value;
+	 					}
+	 					// 找到最近的楼层
+	 					// 外面的
+						if (empty($value['floor_want'])) {
 							if ($value['floor_now'] < $want) {
 								$want = $value['floor_now'];
-								$this_time = $value;
-	 						} else if ($value['floor_want'] < $want) {
-								$want = $value['floor_want'];
-								$this_time = $value;
-	 						}
-
+	 							$this_time = $value;
+							}
 						}
-					}
+						// 里面的
+						else {
+							// 当前的任务
+							if ($this_time == $value) {
+								if ($want <= $elevator['now']){
+									$want = $value['floor_want'];
+									$this_time = $value;
+								}
+							} else {
+								// 其他的任务
+								if ($value['floor_now'] < $want) {
+									$want = $value['floor_now'];
+									$this_time = $value;
+		 						} else if ($value['floor_want'] < $want) {
+									$want = $value['floor_want'];
+									$this_time = $value;
+		 						}
 
+							}
+						}
+						if ($this_time['floor_now'] > $elevator['now']){
+							$this_del = false;
+						}
  				} 
- 				if ($elevator['status'] == "down" && $value['floor_now'] <= $elevator['now']) {
+ 				if ($elevator['status'] == "down" &&  ($value['floor_now'] <= $elevator['now'] || ($value['floor_want'] && $value['floor_want'] <= $elevator['now'])) ){
  					// 先分配一个 
  					if (empty($want)) {
  						$want = $value['floor_now'];
@@ -270,11 +292,7 @@ class Floor
 					else {
 						// 当前的任务
 						if ($this_time == $value) {
-							if ($want < $elevator['now']){
-								$want = $value['floor_now'];
-								$this_time = $value;
-								$this_del = false;
-							} else {
+							if ($want >= $elevator['now']){
 								$want = $value['floor_want'];
 								$this_time = $value;
 							}
@@ -290,7 +308,10 @@ class Floor
 
 						}
 					}
- 				} 
+					if ($this_time['floor_now'] < $elevator['now']){
+						$this_del = false;
+					}
+ 				}
  			} else {
  				// 不同方向任务数量
  				$diff_num ++;
@@ -304,8 +325,8 @@ class Floor
  					// 找到最近的任务
  					// 外面的
 					if (empty($value['floor_want'])) {
-						if ($value['floor_now'] > $want) {
-							$want = $value['floor_now'];
+						if ($value['floor_now'] > $next_want) {
+							$next_want = $value['floor_now'];
  							$next_time = $value;
 							$next_del = false;
 						}
@@ -314,19 +335,19 @@ class Floor
 					else {
 						// 当前的任务
 						if ($next_time == $value) {
-							if ($want != $elevator['now']){
-								$want = $value['floor_now'];
+							if ($next_want != $elevator['now']){
+								$next_want = $value['floor_now'];
 								$next_time = $value;
 								$next_del = false;
 							}
 							 else {
-								$want = $value['floor_want'];
+								$next_want = $value['floor_want'];
 								$next_time = $value;
 							}
 						} else {
 							// 其他的任务 下降肯定是由高到低
-							if ($value['floor_now'] > $want) {
-								$want = $value['floor_now'];
+							if ($value['floor_now'] > $next_want) {
+								$next_want = $value['floor_now'];
 								$next_time = $value;
 								$next_del = false;
 	 						} 
@@ -336,8 +357,8 @@ class Floor
  				} 
  				if ($elevator['status'] == "down") {
  					// 先分配一个 
- 					if (empty($want)) {
- 						$want = $value['floor_now'];
+ 					if (empty($next_want)) {
+ 						$next_want = $value['floor_now'];
  						$next_time = $value;
  					}
  					// 找到最近的任务
@@ -346,16 +367,16 @@ class Floor
 						// 当前的任务
 						if ($value == $next_time){
 							// 未到达当前楼
-							if ($want != $elevator['now']){
+							if ($next_want != $elevator['now']){
 								$next_del = false;
 							}
 							 else {
-								$want = $value['floor_want'];
+								$next_want = $value['floor_want'];
 								$next_time = $value;
 							}
 						}
-						else if ($value['floor_now'] < $want) {
-							$want = $value['floor_now'];
+						else if ($value['floor_now'] < $next_want) {
+							$next_want = $value['floor_now'];
  							$next_time = $value;
 							$next_del = false;
 						}
@@ -364,17 +385,17 @@ class Floor
 					else {
 						// 当前的任务
 						if ($next_time == $value) {
-							if ($want != $elevator['now']){
+							if ($next_want != $elevator['now']){
 								$next_del = false;
 							}
 							 else {
-								$want = $value['floor_want'];
+								$next_want = $value['floor_want'];
 								$next_time = $value;
 							}
 						} else {
 							// 其他的任务 上升肯定是由低到高
-							if ($value['floor_now'] < $want) {
-								$want = $value['floor_now'];
+							if ($value['floor_now'] < $next_want) {
+								$next_want = $value['floor_now'];
 								$next_time = $value;
 								$next_del = false;
 	 						} 
@@ -403,15 +424,14 @@ class Floor
 	 			//推送
 	 			$this->serv->push($fd, "elevator:{$elevator_num} from {$elevator['now']} to {$want}"); 
 	 		}
-	 	} else {
-	 		if ($next_time){
-		 		// 任务执行
-		 		if ($this->working($elevator_num, $elevator['now'], $next_want)) {
-		 			if ($next_del){
-			 			// 从任务队列删除任务
-			 			$res = $this->delFloor($elevator_num, $next_time['floor_now'], $next_want, $next_time['status']);
-			 		}
-		 			// 更改电梯状态
+	 	} else if ($next_time){
+	 		// 任务执行
+	 		if ($this->working($elevator_num, $elevator['now'], $next_want)) {
+	 			if ($next_del){
+		 			// 从任务队列删除任务
+		 			$res = $this->delFloor($elevator_num, $next_time['floor_now'], $next_want, $next_time['status']);
+		 		}
+	 			// 更改电梯状态
 	 			if ($some_num > 1 || !$this_del) {
 		 				$status = $elevator['status'];
 		 			} else if ($diff_num > 0 || !$next_del) {
@@ -422,19 +442,44 @@ class Floor
 		 			$res = $this->statusChange($elevator_num, $status, $next_want);
 		 			//推送
 		 			$this->serv->push($fd, "elevator:{$elevator_num} from {$elevator['now']} to {$next_want}"); 
-		 		}
 	 		}
-	 	}
+ 		}
  		return true;
  	}
 
  	// 模拟执行一个任务
- 	public function working($elevator_num, $now, $want) {
- 		$msg = "elevator:{$elevator_num} from {$now} to {$want}";
- 		// $this->serv->push($elevator_num, json_encode(array("msg" => $msg)));
- 		// sleep(5);
- 		$msg = "elevator:{$elevator_num} is on {$want}";
- 		// $this->serv->push($elevator_num, json_encode(array("msg" => $msg)));
+ 	public function working($elevator_num, $floor_now, $floor_want) {
+ 		$msg = "elevator:{$elevator_num} from {$floor_now} to {$floor_want}";
+ 		echo "$msg \n";
+ 		if ($floor_now < $floor_want) {
+ 			$status = "up";
+ 			for ($i = $floor_now; $i < $floor_want; $i++) {
+ 				sleep(2);
+ 				$has = $this->readFloor($elevator_num, $i, $floor_want, $status);
+ 				if ($has) {
+ 				echo "has is no null\n";
+ 				var_dump($has);
+		 			$this->statusChange($elevator_num, $status, $i);
+		 			return false;
+ 				}
+ 			}
+ 		} else if ($floor_now > $floor_want) {
+ 			$status = "down";
+ 			for ($i = $floor_now; $i > $floor_want; $i--) {
+ 				sleep(2);
+ 				$has = $this->readFloor($elevator_num, $i, $floor_want, $status);
+ 				if ($has) {
+ 				echo "has is no null\n";
+ 				var_dump($has);
+		 			$this->statusChange($elevator_num, $status, $i);
+		 			return false;
+ 				}
+ 			}
+
+ 		}
+ 		$msg = "elevator:{$elevator_num} is on {$floor_want}";
+ 		echo "$msg \n";
+
  		return true;
  	}
 }
