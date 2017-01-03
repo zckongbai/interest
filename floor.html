@@ -1,0 +1,61 @@
+<html> 
+    <head> 
+        <title>WebSoket Demo</title> 
+        <script type="text/JavaScript"> 
+            //验证浏览器是否支持WebSocket协议
+            if (!window.WebSocket) { 
+                alert("WebSocket not supported by this browser!"); 
+            } 
+             var ws;
+            function display() { 
+                //var valueLabel = document.getElementById("valueLabel"); 
+                //valueLabel.innerHTML = ""; 
+                ws = new WebSocket("ws://127.0.0.1:9509");
+                //监听消息
+                ws.onmessage = function(event) { 
+                    //valueLabel.innerHTML+ = event.data; 
+                    log(event.data);
+                }; 
+                // 打开WebSocket 
+                ws.onclose = function(event) { 
+                  //WebSocket Status:: Socket Closed
+                }; 
+                // 打开WebSocket
+                ws.onopen = function(event) { 
+                   //WebSocket Status:: Socket Open
+                    //// 发送一个初始化消息
+                    // ws.send("Hello, Server!"); 
+                }; 
+                ws.onerror =function(event){
+                    //WebSocket Status:: Error was reported
+                };
+            } 
+            var log = function(s) {  
+   if (document.readyState !== "complete") {  
+       log.buffer.push(s);  
+   } else {  
+       document.getElementById("contentId").innerHTML += (s + "\n");  
+   }  
+}  
+            function sendMsg(){
+                var elevator_num=document.getElementById("elevator_num").value;
+                var now=document.getElementById("now").value;
+                var status=document.getElementById("status").value;
+                var want=document.getElementById("want").value;
+                var msg = {"elevator_num":elevator_num,"now":now, "status":status, "want":want};
+                // ws.send(msg); 
+                ws.send(JSON.stringify(msg)); 
+            }
+        </script> 
+    </head> 
+    <body onload="display();"> 
+        <div id="valueLabel"></div> 
+        <textarea rows="20" cols="30" id="contentId"></textarea>
+        <br/>
+        elevator_num:    <input name="elevator_num" id="elevator_num" type="text" /> <br/>
+        now:    <input name="now" id="now" type="text" /> <br/>
+        status: <input name="status" id="status" type="text" /> <br/>
+        want:   <input name="want" id="want" type="text" /> <br/>
+        <button id="sendButton" onClick="javascript:sendMsg()" >Send</button>
+    </body> 
+</html> 
