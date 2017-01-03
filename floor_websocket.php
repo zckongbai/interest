@@ -179,7 +179,7 @@ class Floor
  	public function go($fd, $elevator_num) {
  		// echo " go is run| elevator_num = {$elevator_num} \n";
  		$elevator = $this->elevator_table->get($elevator_num);
- 		var_dump($elevator);
+ 		// var_dump($elevator);
  		if (!$elevator) {
  			echo "elevator get false\n";
  			// 清除任务, 更改状态
@@ -202,7 +202,7 @@ class Floor
 
  		// 本次任务
  		$this_time = $next_time = array();
- 		$del= true;
+ 		$this_del = $next_del = true;
  		// 要去的楼层
  		$want = $next_want = "";
  		// 统计上下任务数量
@@ -216,7 +216,6 @@ class Floor
  				if ($elevator['status'] == "up" && $value['floor_now'] >= $elevator['now'])  {
  					// 先分配一个 
  					if (empty($want)) {
- 						echo "1\n";
  						$want = $value['floor_now'];
  						$this_time = $value;
  					}
@@ -235,7 +234,7 @@ class Floor
 							if ($want > $elevator['now']){
 								$want = $value['floor_now'];
 								$this_time = $value;
-								$del = false;
+								$this_del = false;
 							} else {
 								$want = $value['floor_want'];
 								$this_time = $value;
@@ -244,6 +243,7 @@ class Floor
 							// 其他的任务
 							if ($value['floor_now'] < $want) {
 								$want = $value['floor_now'];
+								$this_time = $value;
 	 						} else if ($value['floor_want'] < $want) {
 								$want = $value['floor_want'];
 								$this_time = $value;
@@ -266,17 +266,27 @@ class Floor
  							$this_time = $value;
 						}
 					} 
-					// else if ($value['floor_want'] > $want) {
-					// 	$want = $value['floor_want'];
-					// 	$this_time = $value;
-					// }
+					// 里面的
 					else {
-						if ($value['floor_now'] > $want) {
-							$want = $value['floor_now'];
-							$this_time = $value;
-						} else if ($value['floor_want'] > $want) {
-							$want = $value['floor_want'];
-							$this_time = $value;
+						// 当前的任务
+						if ($this_time == $value) {
+							if ($want < $elevator['now']){
+								$want = $value['floor_now'];
+								$this_time = $value;
+								$this_del = false;
+							} else {
+								$want = $value['floor_want'];
+								$this_time = $value;
+							}
+						} else {
+							// 其他的任务
+							if ($value['floor_now'] > $want) {
+								$want = $value['floor_now'];
+								$this_time = $value;
+	 						} else if ($value['floor_want'] > $want) {
+								$want = $value['floor_want'];
+								$this_time = $value;
+	 						}
 
 						}
 					}
@@ -285,52 +295,91 @@ class Floor
  				// 不同方向任务数量
  				$diff_num ++;
  				// 分上下两种情况
- 				if ($elevator['status'] == "up" && $value['floor_now'] >= $elevator['now'])  {
+ 				if ($elevator['status'] == "up")  {
  					// 先分配一个 
  					if (empty($next_want)) {
  						$next_want = $value['floor_now'];
  						$next_time = $value;
  					}
- 					// 找到最近的楼层
-
-					if ($value['floor_now'] < $next_want) {
-						$next_want = $value['floor_now'];
-						$next_time = $value;
+ 					// 找到最近的任务
+ 					// 外面的
+					if (empty($value['floor_want'])) {
+						if ($value['floor_now'] > $want) {
+							$want = $value['floor_now'];
+ 							$next_time = $value;
+							$next_del = false;
+						}
+					}
+					// 里面的
+					else {
+						// 当前的任务
+						if ($next_time == $value) {
+							if ($want != $elevator['now']){
+								$want = $value['floor_now'];
+								$next_time = $value;
+								$next_del = false;
+							}
+							 else {
+								$want = $value['floor_want'];
+								$next_time = $value;
+							}
+						} else {
+							// 其他的任务 下降肯定是由高到低
+							if ($value['floor_now'] > $want) {
+								$want = $value['floor_now'];
+								$next_time = $value;
+								$next_del = false;
+	 						} 
+						}
 					}
 
-					// if (empty($value['floor_next_want'])) {
-					// 	if ($value['floor_now'] < $next_want) {
-					// 		$next_want = $value['floor_now'];
- 				// 			$next_time = $value;
-					// 	}
-					// } else if ($value['floor_next_want'] < $next_want) {
-					// 	$next_want = $value['floor_want'];
-					// 	$next_time = $value;
-					// }
-
  				} 
- 				if ($elevator['status'] == "down" && $value['floor_now'] <= $elevator['now']) {
+ 				if ($elevator['status'] == "down") {
  					// 先分配一个 
  					if (empty($want)) {
  						$want = $value['floor_now'];
  						$next_time = $value;
  					}
- 					// 找到最近的楼层
-
-					if ($value['floor_now'] > $want) {
-						$want = $value['floor_now'];
-						$next_time = $value;
+ 					// 找到最近的任务
+ 					// 外面的
+					if (empty($value['floor_want'])) {
+						// 当前的任务
+						if ($value == $next_time){
+							// 未到达当前楼
+							if ($want != $elevator['now']){
+								$next_del = false;
+							}
+							 else {
+								$want = $value['floor_want'];
+								$next_time = $value;
+							}
+						}
+						else if ($value['floor_now'] < $want) {
+							$want = $value['floor_now'];
+ 							$next_time = $value;
+							$next_del = false;
+						}
 					}
-
-					// if (empty($value['floor_want'])) {
-					// 	if ($value['floor_now'] > $want) {
-					// 		$want = $value['floor_now'];
- 				// 			$next_time = $value;
-					// 	}
-					// } else if ($value['floor_want'] > $want) {
-					// 	$want = $value['floor_want'];
-					// 	$next_time = $value;
-					// }
+					// 里面的
+					else {
+						// 当前的任务
+						if ($next_time == $value) {
+							if ($want != $elevator['now']){
+								$next_del = false;
+							}
+							 else {
+								$want = $value['floor_want'];
+								$next_time = $value;
+							}
+						} else {
+							// 其他的任务 上升肯定是由低到高
+							if ($value['floor_now'] < $want) {
+								$want = $value['floor_now'];
+								$next_time = $value;
+								$next_del = false;
+	 						} 
+						}
+					}
  				} 
  			}
 
@@ -338,12 +387,12 @@ class Floor
  		if ($this_time){
 	 		// 任务执行
 	 		if ($this->working($elevator_num, $elevator['now'], $want)) {
-	 			if ($del){
+	 			if ($this_del){
 		 			// 从任务队列删除任务
 		 			$res = $this->delFloor($elevator_num, $this_time['floor_now'], $this_time['floor_want'], $this_time['status']);
 	 			}
 	 			// 更改电梯状态
-	 			if ($some_num > 1 || !$del) {
+	 			if ($some_num > 1 || !$this_del) {
 	 				$status = $elevator['status'];
 	 			} else if ($diff_num > 0) {
 					$status = $elevator['status'] == "up" ? "down" : "up";
@@ -355,23 +404,22 @@ class Floor
 	 			$this->serv->push($fd, "elevator:{$elevator_num} from {$elevator['now']} to {$want}"); 
 	 		}
 	 	} else {
-	 		// echo " this_time is null\n";
-	 		// var_dump($elevator,$go);
 	 		if ($next_time){
 		 		// 任务执行
 		 		if ($this->working($elevator_num, $elevator['now'], $next_want)) {
-		 			// 从任务队列删除任务
-		 			$res = $this->delFloor($elevator_num, $next_time['floor_now'], $next_want, $next_time['status']);
+		 			if ($next_del){
+			 			// 从任务队列删除任务
+			 			$res = $this->delFloor($elevator_num, $next_time['floor_now'], $next_want, $next_time['status']);
+			 		}
 		 			// 更改电梯状态
-		 			if ($some_num > 1) {
+	 			if ($some_num > 1 || !$this_del) {
 		 				$status = $elevator['status'];
-		 			} else if ($diff_num > 0) {
+		 			} else if ($diff_num > 0 || !$next_del) {
 						$status = $elevator['status'] == "up" ? "down" : "up";
 		 			} else {
 		 				$status = "free";
 		 			}
 		 			$res = $this->statusChange($elevator_num, $status, $next_want);
-		 			var_dump($res);
 		 			//推送
 		 			$this->serv->push($fd, "elevator:{$elevator_num} from {$elevator['now']} to {$next_want}"); 
 		 		}
